@@ -1,0 +1,920 @@
+From 74b70555830abbb7d464d5e8e74f3bbafe2df7e8 Mon Sep 17 00:00:00 2001
+From: DuyHieu123456 <duyhieu123456@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 13:33:08 +0700
+Subject: [PATCH] complete BookStore_Tuan
+
+---
+ TraLoi.md                        |  42 ++++++++
+ src/components/PriceFilter.tsx   |  35 +++++--
+ src/hooks/useDebounce.ts         |   7 +-
+ src/navigation/CustomTabBar.tsx  |  50 +++++++--
+ src/navigation/RootNavigator.tsx |   3 +-
+ src/navigation/TabNavigator.tsx  |   9 +-
+ src/screens/AccountScreen.tsx    |  13 ++-
+ src/screens/BookDetailScreen.tsx |  69 +++++++++---
+ src/screens/CartScreen.tsx       |  14 +--
+ src/screens/CategoriesScreen.tsx |  70 ++++++++-----
+ src/screens/HomeScreen.tsx       | 173 +++++++++++++++++++++++--------
+ src/services/bookService.ts      |  10 +-
+ src/services/categoryService.ts  |   5 +-
+ src/store/authSlice.ts           |  10 +-
+ src/store/cartSlice.ts           |  19 ++--
+ src/store/hooks.ts               |  15 ++-
+ src/store/wishlistSlice.ts       |   6 +-
+ src/utils/filters.ts             |  23 ++--
+ 18 files changed, 413 insertions(+), 160 deletions(-)
+ create mode 100644 TraLoi.md
+
+diff --git a/TraLoi.md b/TraLoi.md
+new file mode 100644
+index 0000000..45ebd98
+--- /dev/null
++++ b/TraLoi.md
+@@ -0,0 +1,42 @@
++# Trả lời câu hỏi bổ sung — BookStore Buổi 7
++
++Họ tên: Trần Huỳnh Duy Hiệu — MSSV: 23722361
++
++## Câu 1 — Cấu trúc điều hướng
++
++BookDetail được đăng ký ở Stack ngoài cùng vì màn Chi tiết phải phủ lên toàn bộ giao diện, che cả Tab Bar, và Stack tự cung cấp nút quay lại (←) cùng tiêu đề "Chi tiết sách". Người dùng mở Chi tiết từ Home rồi quay lại đúng vị trí cuộn trước đó, giống hệt luồng mua hàng thật. Nếu đặt BookDetail vào trong Tab thì nó sẽ thành một tab ngang hàng: Tab Bar vẫn hiện ở dưới, không có nút ← tự động, và người dùng buộc phải bấm tab để thoát ra thay vì quay lại màn vừa xem.
++
++## Câu 2 — Redux / Immer và useMemo
++
++Redux Toolkit dùng thư viện Immer bên trong createSlice: khi reducer viết `state.items.push(...)`, ta thực ra đang sửa trên một bản nháp (draft) do Immer tạo ra, chứ không sửa trực tiếp state gốc. Immer so sánh bản nháp với state cũ rồi tự sinh ra state mới bất biến, nên component đọc state cũ vẫn an toàn và Redux vẫn phát hiện đúng thay đổi để render lại. Nếu bỏ useMemo trong useCart thì kết quả hiển thị (tổng số lượng, tổng tiền) không đổi chút nào, vì phép tính vẫn chạy; hậu quả chỉ là hai tổng bị tính lại ở mọi lần render dù items không đổi — giỏ càng lớn và app càng render nhiều thì càng tốn, ngoài ra giá trị trả về thay đổi identity không cần thiết có thể khiến các component con dùng memo render lại thừa.
++
++## Câu 3 — Promise.all và cách xử lý khi một API lỗi
++
++Với `Promise.all([getBooks(), getCategories()])` ở Home hiện tại: nếu getCategories() lỗi thì cả Promise.all bị reject ngay, catch chạy và Home hiện ErrorView dù getBooks() đã thành công — người dùng mất cả danh sách sách chỉ vì thiếu danh mục. Muốn vẫn hiện sách thì đổi sang `Promise.allSettled`: request nào fulfilled thì lấy value của nó, request nào rejected thì chỉ mất phần đó (ví dụ vẫn hiện lưới sách nhưng không có chip danh mục, kèm ghi log hoặc thông báo phụ). Đánh đổi là code phức tạp hơn: phải tự kiểm tra trạng thái từng kết quả, tự quyết định lỗi phần nào là chấp nhận được, và giao diện có thêm các trạng thái "thiếu một phần dữ liệu" khó kiểm thử hơn lỗi toàn cục.
++
++## Câu 4 — Debounce
++
++Không đặt setTimeout thẳng trong onChangeText vì mỗi ký tự gõ vào đều tạo một timer riêng mà timer của các ký tự trước không bị huỷ; các timer đó vẫn lần lượt chạy và gây lọc (hoặc gọi API) nhiều lần, chỉ là mỗi lần bị trễ đi chứ không gộp lại thành một lần cuối. Hook useDebounce đặt timer trong useEffect và trả về hàm dọn dẹp `return () => clearTimeout(t)`: mỗi khi value đổi, React chạy hàm dọn dẹp của lần trước, huỷ timer cũ, chỉ timer của ký tự cuối cùng mới đủ 400 ms để cập nhật giá trị. Hàm dọn dẹp còn tránh được việc setState vào component đã bị gỡ khỏi màn hình (unmount), vốn gây cảnh báo rò rỉ bộ nhớ và lỗi khó hiểu.
++
++## Câu 5 — Code bổ sung: sắp xếp giá tăng dần / giảm dần
++
++Đã thêm vào HomeScreen (`src/screens/HomeScreen.tsx`): một state `sort` và một hàng hai nút "Giá tăng dần / Giá giảm dần" trong phần header của lưới (bấm lại nút đang chọn để bỏ sắp xếp). Việc sắp xếp làm ngay trong useMemo của `visibleBooks`: lọc trước bằng `filterBooks`, sau đó sắp xếp một **bản sao** của mảng đã lọc để không sửa mảng gốc trong state.
++
++```tsx
++type SortKey = "asc" | "desc" | null;
++const [sort, setSort] = useState<SortKey>(null);
++
++const visibleBooks = useMemo(() => {
++  const filtered = filterBooks(books, {
++    keyword: debouncedKeyword,
++    categoryId,
++    priceRange,
++  });
++  if (!sort) return filtered;
++  return [...filtered].sort((a, b) =>
++    sort === "asc" ? a.price - b.price : b.price - a.price
++  );
++}, [books, debouncedKeyword, categoryId, priceRange, sort]);
++```
++
++Ảnh chụp màn hình kết quả sắp xếp: đính kèm trong file Word minh chứng (mục Câu 5 — sắp xếp giá).
+diff --git a/src/components/PriceFilter.tsx b/src/components/PriceFilter.tsx
+index 6d036ef..82a9d67 100644
+--- a/src/components/PriceFilter.tsx
++++ b/src/components/PriceFilter.tsx
+@@ -1,16 +1,37 @@
+ import React from "react";
+-import { PriceRange } from "../utils/filters";
+-import { TodoBox } from "./TodoBox";
++import { Pressable, ScrollView, StyleSheet, Text } from "react-native";
++import { PRICE_RANGES, PriceRange } from "../utils/filters";
++import { colors, radius } from "../theme";
+ 
+ interface Props {
+   value: PriceRange;
+   onChange: (v: PriceRange) => void;
+ }
+ 
+-// THỬ THÁCH: 3 nút lọc khoảng giá (bấm lần nữa để bỏ chọn)
++// THỬ THÁCH BT7.C2: 3 nút lọc khoảng giá (bấm lần nữa vào nút đang chọn để bỏ chọn)
+ export function PriceFilter({ value, onChange }: Props) {
+-  // TODO BT7.C2: render 3 nút từ PRICE_RANGES (import từ utils/filters); nút đang chọn có nền cyan (colors.cyan)
+-  //   active = value === r.key · onPress = onChange(active ? null : r.key)   (mẫu: xem CategoryChips)
+-  void value; void onChange;
+-  return <TodoBox id="BT7.C2">Thử thách: 3 nút lọc giá — Dưới 100k / 100k–300k / Trên 300k.</TodoBox>;
++  return (
++    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
++      {PRICE_RANGES.map((r) => {
++        const active = value === r.key;
++        return (
++          <Pressable
++            key={r.key}
++            onPress={() => onChange(active ? null : r.key)}
++            style={[styles.btn, active && styles.btnActive]}
++          >
++            <Text style={[styles.text, active && styles.textActive]}>{r.label}</Text>
++          </Pressable>
++        );
++      })}
++    </ScrollView>
++  );
+ }
++
++const styles = StyleSheet.create({
++  row: { paddingHorizontal: 12, paddingBottom: 10, gap: 8 },
++  btn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: "#fff", borderWidth: 1, borderColor: colors.cyan },
++  btnActive: { backgroundColor: colors.cyan, borderColor: colors.cyan },
++  text: { color: colors.text, fontWeight: "600" },
++  textActive: { color: "#fff", fontWeight: "800" },
++});
+diff --git a/src/hooks/useDebounce.ts b/src/hooks/useDebounce.ts
+index 41e2f52..63ea188 100644
+--- a/src/hooks/useDebounce.ts
++++ b/src/hooks/useDebounce.ts
+@@ -4,10 +4,9 @@ import { useEffect, useState } from "react";
+ export function useDebounce<T>(value: T, delay = 400): T {
+   const [debounced, setDebounced] = useState(value);
+   useEffect(() => {
+-    // TODO BT7.7b: setTimeout(() => setDebounced(value), delay) và return hàm dọn dẹp clearTimeout
+-    //   (gõ tiếp → huỷ hẹn giờ cũ). Hiện tại hook trả value ngay → KHÔNG có debounce.
+-    setDebounced(value);
+-    void delay;
++    // BT7.7b: hẹn giờ cập nhật; gõ tiếp → hàm dọn dẹp huỷ hẹn giờ cũ
++    const t = setTimeout(() => setDebounced(value), delay);
++    return () => clearTimeout(t);
+   }, [value, delay]);
+   return debounced;
+ }
+diff --git a/src/navigation/CustomTabBar.tsx b/src/navigation/CustomTabBar.tsx
+index 6d070fa..e7017ac 100644
+--- a/src/navigation/CustomTabBar.tsx
++++ b/src/navigation/CustomTabBar.tsx
+@@ -1,16 +1,46 @@
+ import React from "react";
+ import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
+-import { TodoBox } from "../components/TodoBox";
+-// import { TabBar, TabItem } from "../components/TabBar";   // ← Tab Bar giao diện đã dựng sẵn
+-// import { useCart } from "../store/hooks";
++import { TabBar, TabItem } from "../components/TabBar";
++import { useCart } from "../store/hooks";
++
++const EMOJI: Record<string, string> = {
++  Home: "🏠",
++  Categories: "🗂️",
++  Cart: "🛒",
++  Account: "👤",
++};
+ 
+ // Nối Tab Bar tự dựng với React Navigation: nhận { state, descriptors, navigation }
+ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+-  // TODO BT7.1a: dựng mảng `items: TabItem[]` từ state.routes
+-  //   key = route.key · label = descriptors[route.key].options.title ?? route.name · emoji tra theo route.name
+-  // TODO BT7.1a: viết onPress(key): emit "tabPress" rồi navigation.navigate(route.name) nếu chưa focus
+-  // TODO BT7.1a: return <TabBar items={items} activeKey={state.routes[state.index].key} onPress={onPress} />
+-  // TODO BT7.3e: gắn badge = totalQuantity (từ useCart) cho route "Cart"
+-  void state; void descriptors; void navigation;
+-  return <TodoBox id="BT7.1a">Viết CustomTabBar: dùng lại component TabBar có sẵn (xem // TODO trong file).</TodoBox>;
++  const { totalQuantity } = useCart();
++
++  // BT7.1a + BT7.3e: dựng items từ routes, gắn badge giỏ hàng cho tab Cart
++  const items: TabItem[] = state.routes.map((route) => ({
++    key: route.key,
++    label: descriptors[route.key].options.title ?? route.name,
++    emoji: EMOJI[route.name] ?? "•",
++    badge: route.name === "Cart" ? totalQuantity : undefined,
++  }));
++
++  const onPress = (key: string) => {
++    const route = state.routes.find((r) => r.key === key);
++    if (!route) return;
++    const isFocused = state.routes[state.index].key === key;
++    const event = navigation.emit({
++      type: "tabPress",
++      target: route.key,
++      canPreventDefault: true,
++    });
++    if (!isFocused && !event.defaultPrevented) {
++      navigation.navigate(route.name, route.params);
++    }
++  };
++
++  return (
++    <TabBar
++      items={items}
++      activeKey={state.routes[state.index].key}
++      onPress={onPress}
++    />
++  );
+ }
+diff --git a/src/navigation/RootNavigator.tsx b/src/navigation/RootNavigator.tsx
+index 7b2546f..99f435f 100644
+--- a/src/navigation/RootNavigator.tsx
++++ b/src/navigation/RootNavigator.tsx
+@@ -15,11 +15,10 @@ export const stackScreenOptions = {
+ };
+ 
+ export function RootNavigator() {
+-  void BookDetailScreen;
+   return (
+     <Stack.Navigator screenOptions={stackScreenOptions}>
+       <Stack.Screen name="Tabs" component={TabNavigator} options={{ headerShown: false }} />
+-      {/* TODO BT7.1c: đăng ký màn BookDetail vào Stack (title "Chi tiết sách") — dùng BookDetailScreen đã import ở trên */}
++      <Stack.Screen name="BookDetail" component={BookDetailScreen} options={{ title: "Chi tiết sách" }} />
+       <Stack.Screen name="Checkout" component={CheckoutScreen} options={{ title: "Thanh toán" }} />
+     </Stack.Navigator>
+   );
+diff --git a/src/navigation/TabNavigator.tsx b/src/navigation/TabNavigator.tsx
+index 7137a88..049ccd5 100644
+--- a/src/navigation/TabNavigator.tsx
++++ b/src/navigation/TabNavigator.tsx
+@@ -10,12 +10,11 @@ import { AccountScreen } from "../screens/AccountScreen";
+ const Tab = createBottomTabNavigator<TabParamList>();
+ 
+ export function TabNavigator() {
+-  // TODO BT7.1b: sau khi viết xong CustomTabBar, thêm vào Tab.Navigator prop:
+-  //   tabBar={(props) => <CustomTabBar {...props} />}
+-  // (Hiện đang dùng thanh tab MẶC ĐỊNH của thư viện — chưa phải giao diện tự dựng.)
+-  void CustomTabBar;
+   return (
+-    <Tab.Navigator screenOptions={{ headerShown: false }}>
++    <Tab.Navigator
++      screenOptions={{ headerShown: false }}
++      tabBar={(props) => <CustomTabBar {...props} />}
++    >
+       <Tab.Screen name="Home" component={HomeScreen} options={{ title: "Home" }} />
+       <Tab.Screen name="Categories" component={CategoriesScreen} options={{ title: "Danh mục" }} />
+       <Tab.Screen name="Cart" component={CartScreen} options={{ title: "Giỏ hàng" }} />
+diff --git a/src/screens/AccountScreen.tsx b/src/screens/AccountScreen.tsx
+index 4d5cb41..65ca783 100644
+--- a/src/screens/AccountScreen.tsx
++++ b/src/screens/AccountScreen.tsx
+@@ -8,8 +8,6 @@ import { colors, radius } from "../theme";
+ // Dữ liệu đăng nhập đang là GIẢ  — đăng nhập thật qua API làm ở buổi sau.
+ export function AccountScreen() {
+   const { user, isLoggedIn, signIn, signOut } = useAuth();
+-  // TODO BT7.4c: kiểm tra 2 nhánh JSX bên dưới hiển thị đúng khi isLoggedIn đổi (cần xong BT7.4a, BT7.4b)
+-  // TODO BT7.4d: nút đăng nhập thử gọi signIn(user giả, "fake-token"); nút Đăng xuất gọi signOut
+ 
+   return (
+     <View style={styles.container}>
+@@ -19,7 +17,8 @@ export function AccountScreen() {
+           <Text style={styles.avatar}>🙂</Text>
+           <Text style={styles.name}>{user.name}</Text>
+           <Text style={styles.email}>{user.email}</Text>
+-          <Pressable style={[styles.btn, styles.btnOutline]} onPress={() => void signOut}>
++          {/* BT7.4d: đăng xuất → authSlice.logout đưa user/token về null */}
++          <Pressable style={[styles.btn, styles.btnOutline]} onPress={signOut}>
+             <Text style={styles.btnOutlineText}>Đăng xuất</Text>
+           </Pressable>
+         </View>
+@@ -27,9 +26,15 @@ export function AccountScreen() {
+         <View style={styles.box}>
+           <Text style={styles.avatar}>🔒</Text>
+           <Text style={styles.name}>Bạn chưa đăng nhập</Text>
++          {/* BT7.4d: đăng nhập thử (giả lập) với user demo + token giả */}
+           <Pressable
+             style={styles.btn}
+-            onPress={() => void signIn}
++            onPress={() =>
++              signIn(
++                { id: 1, name: "Học viên Demo", email: "demo@bookstore.vn" },
++                "fake-token"
++              )
++            }
+           >
+             <Text style={styles.btnText}>Đăng nhập thử (dữ liệu giả)</Text>
+           </Pressable>
+diff --git a/src/screens/BookDetailScreen.tsx b/src/screens/BookDetailScreen.tsx
+index cba8ae8..b782c3c 100644
+--- a/src/screens/BookDetailScreen.tsx
++++ b/src/screens/BookDetailScreen.tsx
+@@ -1,12 +1,10 @@
+-import React from "react";
++import React, { useCallback, useEffect, useState } from "react";
+ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+-import { TodoBox } from "../components/TodoBox";
+-import { MOCK_BOOKS } from "../data/mockBooks";
+-// import { LoadingView } from "../components/LoadingView";
+-// import { ErrorView } from "../components/ErrorView";
+-// import { getBookById } from "../services/bookService";
+-// import { getErrorMessage } from "../api/client";
+-import { useCart } from "../store/hooks";
++import { LoadingView } from "../components/LoadingView";
++import { ErrorView } from "../components/ErrorView";
++import { getBookById } from "../services/bookService";
++import { getErrorMessage } from "../api/client";
++import { useCart, useWishlist } from "../store/hooks";
+ import { RootScreenProps } from "../navigation/types";
+ import { Book } from "../types";
+ import { colors, formatPrice, radius } from "../theme";
+@@ -15,12 +13,35 @@ import { colors, formatPrice, radius } from "../theme";
+ export function BookDetailScreen({ route }: RootScreenProps<"BookDetail">) {
+   const { bookId } = route.params;
+   const { add } = useCart();
++  // BT7.C1: yêu thích (wishlist) qua hook adapter
++  const { isFavorite, toggle } = useWishlist();
++  const favorite = isFavorite(bookId);
+ 
+-  // TODO BT7.5d: tạo state book / loading / error và hàm load() gọi getBookById(bookId); chạy trong useEffect([bookId])
+-  // TODO BT7.5e: if (loading) return <LoadingView/>;  if (error || !book) return <ErrorView message onRetry={load}/>
+-  // Tạm thời lấy sách từ dữ liệu giả để màn hình có nội dung:
+-  const book: Book | undefined = MOCK_BOOKS.find((x) => x.id === bookId);
+-  if (!book) return <TodoBox id="BT7.5e">{`Không có sách #${bookId} trong dữ liệu giả — hãy gọi API.`}</TodoBox>;
++  // BT7.5d: state + load() gọi API theo bookId nhận qua route.params (Bài 7.2)
++  const [book, setBook] = useState<Book | null>(null);
++  const [loading, setLoading] = useState(true);
++  const [error, setError] = useState<string | null>(null);
++
++  const load = useCallback(async () => {
++    setLoading(true);
++    setError(null);
++    try {
++      setBook(await getBookById(bookId));
++    } catch (e) {
++      setError(getErrorMessage(e));
++    } finally {
++      setLoading(false);
++    }
++  }, [bookId]);
++
++  useEffect(() => {
++    load();
++  }, [load]);
++
++  // BT7.5e: kiểm tra loading / lỗi TRƯỚC khi dùng book
++  if (loading) return <LoadingView />;
++  if (error || !book)
++    return <ErrorView message={error ?? "Không tìm thấy sách."} onRetry={load} />;
+ 
+   return (
+     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+@@ -32,10 +53,26 @@ export function BookDetailScreen({ route }: RootScreenProps<"BookDetail">) {
+       <Text style={styles.price}>{formatPrice(book.price)}</Text>
+       <Text style={styles.stock}>Còn {book.stock} cuốn</Text>
+       <Text style={styles.desc}>{book.description}</Text>
+-      {/* TODO BT7.3c: nút "Thêm vào giỏ" → add({ bookId, title, price, emoji, color, stock }) từ book */}
+-      <Pressable style={styles.btn} onPress={() => void add}>
++      {/* BT7.3c: thêm vào giỏ (payload không có quantity — slice tự gán) */}
++      <Pressable
++        style={styles.btn}
++        onPress={() =>
++          add({
++            bookId: book.id,
++            title: book.title,
++            price: book.price,
++            emoji: book.emoji,
++            color: book.color,
++            stock: book.stock,
++          })
++        }
++      >
+         <Text style={styles.btnText}>Thêm vào giỏ</Text>
+       </Pressable>
++      {/* BT7.C1: nút yêu thích ♡/♥ — trạng thái nằm ở wishlistSlice, đổi qua useWishlist().toggle */}
++      <Pressable style={styles.favBtn} onPress={() => toggle(book.id)}>
++        <Text style={styles.favText}>{favorite ? "♥ Đã yêu thích" : "♡ Yêu thích"}</Text>
++      </Pressable>
+     </ScrollView>
+   );
+ }
+@@ -52,4 +89,6 @@ const styles = StyleSheet.create({
+   desc: { color: colors.text, lineHeight: 22, marginTop: 4 },
+   btn: { backgroundColor: colors.indigo, padding: 14, borderRadius: radius.md, alignItems: "center", marginTop: 12 },
+   btnText: { color: "#fff", fontWeight: "800", fontSize: 16 },
++  favBtn: { borderWidth: 1.5, borderColor: colors.heart, padding: 14, borderRadius: radius.md, alignItems: "center", marginTop: 4 },
++  favText: { color: colors.heart, fontWeight: "800", fontSize: 16 },
+ });
+diff --git a/src/screens/CartScreen.tsx b/src/screens/CartScreen.tsx
+index 95b973c..dd819ca 100644
+--- a/src/screens/CartScreen.tsx
++++ b/src/screens/CartScreen.tsx
+@@ -1,19 +1,15 @@
+ import React from "react";
+ import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+-import { TodoBox } from "../components/TodoBox";
+ import { Header } from "../components/Header";
+ import { CartItemRow } from "../components/CartItemRow";
+-import { CartItem } from "../types";
+ import { useCart } from "../store/hooks";
+ import { TabScreenProps } from "../navigation/types";
+ import { colors, formatPrice, radius } from "../theme";
+ 
+ // đọc giỏ hàng từ store (không còn mock cứng); nút Thanh toán → Checkout
+ export function CartScreen({ navigation }: TabScreenProps<"Cart">) {
+-  // TODO BT7.3f: đọc { items, totalPrice } từ useCart() (store Redux) — hiện đang để giỏ rỗng
+-  const items: CartItem[] = [];
+-  const totalPrice = 0;
+-  void useCart;
++  // BT7.3f: đọc giỏ từ Redux qua hook adapter useCart
++  const { items, totalPrice } = useCart();
+ 
+   return (
+     <View style={styles.container}>
+@@ -23,15 +19,15 @@ export function CartScreen({ navigation }: TabScreenProps<"Cart">) {
+         keyExtractor={(i) => String(i.bookId)}
+         renderItem={({ item }) => <CartItemRow item={item} />}
+         contentContainerStyle={{ paddingVertical: 8, flexGrow: 1 }}
+-        ListEmptyComponent={<TodoBox id="BT7.3f">Giỏ hàng rỗng vì chưa đọc store. Hoàn thành BT7.3a–3f.</TodoBox>}
++        ListEmptyComponent={<Text style={styles.empty}>Giỏ hàng trống</Text>}
+       />
+       <View style={styles.footer}>
+         <Text style={styles.total}>Tổng cộng: {formatPrice(totalPrice)}</Text>
+         <Pressable
+           style={[styles.btn, items.length === 0 && styles.btnDisabled]}
+           disabled={items.length === 0}
+-          // TODO BT7.2b: navigation.navigate("Checkout", { total: totalPrice })
+-          onPress={() => void navigation}
++          // BT7.2b: gửi tổng tiền sang màn Thanh toán
++          onPress={() => navigation.navigate("Checkout", { total: totalPrice })}
+         >
+           <Text style={styles.btnText}>Thanh toán</Text>
+         </Pressable>
+diff --git a/src/screens/CategoriesScreen.tsx b/src/screens/CategoriesScreen.tsx
+index bbd3a61..55a4715 100644
+--- a/src/screens/CategoriesScreen.tsx
++++ b/src/screens/CategoriesScreen.tsx
+@@ -1,40 +1,60 @@
+-import React from "react";
++import React, { useCallback, useEffect, useState } from "react";
+ import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+ import { Header } from "../components/Header";
+-import { TodoBox } from "../components/TodoBox";
+-import { MOCK_CATEGORIES } from "../data/mockBooks";
+-// import { LoadingView } from "../components/LoadingView";
+-// import { ErrorView } from "../components/ErrorView";
+-// import { getCategories } from "../services/categoryService";
+-// import { getErrorMessage } from "../api/client";
++import { LoadingView } from "../components/LoadingView";
++import { ErrorView } from "../components/ErrorView";
++import { getCategories } from "../services/categoryService";
++import { getErrorMessage } from "../api/client";
+ import { TabScreenProps } from "../navigation/types";
+ import { Category } from "../types";
+ import { colors, radius } from "../theme";
+ 
+ // danh mục lấy từ API; nhấn → về Home kèm categoryId (Home tự lọc)
+ export function CategoriesScreen({ navigation }: TabScreenProps<"Categories">) {
+-  // TODO BT7.6b: state data / loading / error + load() gọi getCategories() trong useEffect — giống Home
+-  // TODO BT7.6c: loading → <LoadingView/>, error → <ErrorView onRetry={load}/>
+-  const data: Category[] = MOCK_CATEGORIES;
+-  void navigation;
++  // BT7.6b: state + load() — cùng khuôn với Home nhưng chỉ gọi một API
++  const [data, setData] = useState<Category[]>([]);
++  const [loading, setLoading] = useState(true);
++  const [error, setError] = useState<string | null>(null);
++
++  const load = useCallback(async () => {
++    setLoading(true);
++    setError(null);
++    try {
++      setData(await getCategories());
++    } catch (e) {
++      setError(getErrorMessage(e));
++    } finally {
++      setLoading(false);
++    }
++  }, []);
++
++  useEffect(() => {
++    load();
++  }, [load]);
+ 
+   return (
+     <View style={styles.container}>
+       <Header title="🗂️ Danh mục" />
+-      <FlatList
+-        data={data}
+-        keyExtractor={(c) => String(c.id)}
+-        contentContainerStyle={{ padding: 12, gap: 10 }}
+-        ListHeaderComponent={<TodoBox id="BT7.6b">Danh mục đang là dữ liệu GIẢ — nối API /categories.</TodoBox>}
+-        renderItem={({ item }) => (
+-          // TODO BT7.8c: onPress → navigation.navigate("Home", { categoryId: item.id })
+-          <Pressable style={styles.row} onPress={() => {}}>
+-            <Text style={styles.emoji}>{item.emoji}</Text>
+-            <Text style={styles.name}>{item.name}</Text>
+-            <Text style={styles.arrow}>›</Text>
+-          </Pressable>
+-        )}
+-      />
++      {/* BT7.6c: đủ 3 trạng thái như Home */}
++      {loading ? (
++        <LoadingView label="Đang tải danh mục…" />
++      ) : error ? (
++        <ErrorView message={error} onRetry={load} />
++      ) : (
++        <FlatList
++          data={data}
++          keyExtractor={(c) => String(c.id)}
++          contentContainerStyle={{ padding: 12, gap: 10 }}
++          renderItem={({ item }) => (
++            // BT7.8c: gửi categoryId sang tab Home
++            <Pressable style={styles.row} onPress={() => navigation.navigate("Home", { categoryId: item.id })}>
++              <Text style={styles.emoji}>{item.emoji}</Text>
++              <Text style={styles.name}>{item.name}</Text>
++              <Text style={styles.arrow}>›</Text>
++            </Pressable>
++          )}
++        />
++      )}
+     </View>
+   );
+ }
+diff --git a/src/screens/HomeScreen.tsx b/src/screens/HomeScreen.tsx
+index 19fbc47..b7c2147 100644
+--- a/src/screens/HomeScreen.tsx
++++ b/src/screens/HomeScreen.tsx
+@@ -1,48 +1,96 @@
+-import React, { useState } from "react";
+-import { StyleSheet, View } from "react-native";
++import React, { useCallback, useEffect, useMemo, useState } from "react";
++import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+ import { Header } from "../components/Header";
+ import { SearchBar } from "../components/SearchBar";
+ import { CategoryChips } from "../components/CategoryChips";
+ import { PriceFilter } from "../components/PriceFilter";
+ import { BookGrid } from "../components/BookGrid";
+ import { FloatingCartButton } from "../components/FloatingCartButton";
+-import { TodoBox } from "../components/TodoBox";
+-// import { EmptyState } from "../components/EmptyState";
+-// import { LoadingView } from "../components/LoadingView";
+-// import { ErrorView } from "../components/ErrorView";
+-// import { getBooks } from "../services/bookService";
+-// import { getCategories } from "../services/categoryService";
+-// import { getErrorMessage } from "../api/client";
+-// import { useDebounce } from "../hooks/useDebounce";
+-// import { filterBooks } from "../utils/filters";
+-import { MOCK_BOOKS, MOCK_CATEGORIES } from "../data/mockBooks"; // ← dữ liệu GIẢ
+-import { PriceRange } from "../utils/filters";
++import { EmptyState } from "../components/EmptyState";
++import { LoadingView } from "../components/LoadingView";
++import { ErrorView } from "../components/ErrorView";
++import { getBooks } from "../services/bookService";
++import { getCategories } from "../services/categoryService";
++import { getErrorMessage } from "../api/client";
++import { useDebounce } from "../hooks/useDebounce";
++import { filterBooks, PriceRange } from "../utils/filters";
++import { useCart } from "../store/hooks";
++import { Book, Category } from "../types";
+ import { TabScreenProps } from "../navigation/types";
+-import { colors } from "../theme";
++import { colors, radius } from "../theme";
+ 
+-export function HomeScreen({ navigation }: TabScreenProps<"Home">) {
+-  // TODO BT7.3d: lấy { totalQuantity } từ useCart() và truyền vào <FloatingCartButton count=... />
++// Câu hỏi bổ sung 5: thêm state sắp xếp giá — "asc" tăng dần, "desc" giảm dần, null = mặc định
++type SortKey = "asc" | "desc" | null;
++const SORT_OPTIONS: { key: Exclude<SortKey, null>; label: string }[] = [
++  { key: "asc", label: "Giá tăng dần" },
++  { key: "desc", label: "Giá giảm dần" },
++];
+ 
+-  // TODO BT7.5b: thay dữ liệu giả bằng state: books, categories, loading, error  (useState)
+-  //   rồi viết hàm load() gọi SONG SONG: const [b, c] = await Promise.all([getBooks(), getCategories()])
+-  //   gọi load() trong useEffect(…, []) — nhớ try/catch/finally.
+-  const books = MOCK_BOOKS;
+-  const categories = MOCK_CATEGORIES;
++export function HomeScreen({ navigation, route }: TabScreenProps<"Home">) {
++  // BT7.3d: tổng số lượng trong giỏ cho nút giỏ nổi
++  const { totalQuantity } = useCart();
++
++  // BT7.5b: dữ liệu lấy từ API (không còn dữ liệu giả)
++  const [books, setBooks] = useState<Book[]>([]);
++  const [categories, setCategories] = useState<Category[]>([]);
++  const [loading, setLoading] = useState(true);
++  const [error, setError] = useState<string | null>(null);
++
++  const load = useCallback(async () => {
++    setLoading(true);
++    setError(null);
++    try {
++      // Hai API độc lập → gọi SONG SONG bằng Promise.all
++      const [b, c] = await Promise.all([getBooks(), getCategories()]);
++      setBooks(b);
++      setCategories(c);
++    } catch (e) {
++      setError(getErrorMessage(e));
++    } finally {
++      setLoading(false);
++    }
++  }, []);
++
++  useEffect(() => {
++    load();
++  }, [load]);
+ 
+   const [searchOpen, setSearchOpen] = useState(false);
+   const [keyword, setKeyword] = useState("");
+   const [categoryId, setCategoryId] = useState<number | null>(null);
+   const [priceRange, setPriceRange] = useState<PriceRange>(null);
++  const [sort, setSort] = useState<SortKey>(null);
+ 
+-  // TODO BT7.7a: const debouncedKeyword = useDebounce(keyword, 400);
+-  // TODO BT7.7c: visibleBooks = useMemo(() => filterBooks(books, { keyword: debouncedKeyword, categoryId, priceRange }), [...])
+-  const visibleBooks = books;
++  // BT7.7a: từ khoá chỉ được áp dụng sau khi ngừng gõ 400ms
++  const debouncedKeyword = useDebounce(keyword, 400);
+ 
+-  // TODO BT7.8b: nhận categoryId từ route.params (Tab Danh mục gửi sang) → setCategoryId(id) rồi navigation.setParams({ categoryId: undefined })
++  // BT7.8b: nhận categoryId do tab Danh mục gửi sang, dùng xong thì xoá params
++  useEffect(() => {
++    const id = route.params?.categoryId;
++    if (id !== undefined) {
++      setCategoryId(id);
++      navigation.setParams({ categoryId: undefined });
++    }
++  }, [route.params?.categoryId, navigation]);
+ 
+-  // TODO BT7.5c: hiển thị <LoadingView/> khi loading, <ErrorView message onRetry={load}/> khi error, ngược lại là BookGrid
+-  // TODO BT7.7d: ListEmptyComponent = <EmptyState emoji="🔎" title="Không tìm thấy sách phù hợp" … actionLabel="Xóa bộ lọc" /> + hàm clearFilters
+-  // TODO BT7.7e: nút "✕ Xóa bộ lọc" (chỉ hiện khi đang có bộ lọc) trong header của lưới
++  // BT7.7c + 7.8a + C2: lọc kết hợp, sau đó sắp xếp (câu 5) trên một BẢN SAO
++  const visibleBooks = useMemo(() => {
++    const filtered = filterBooks(books, {
++      keyword: debouncedKeyword,
++      categoryId,
++      priceRange,
++    });
++    if (!sort) return filtered;
++    return [...filtered].sort((a, b) => (sort === "asc" ? a.price - b.price : b.price - a.price));
++  }, [books, debouncedKeyword, categoryId, priceRange, sort]);
++
++  // BT7.7e: đang có bộ lọc hay không (để hiện nút Xóa bộ lọc)
++  const hasFilter = keyword !== "" || categoryId !== null || priceRange !== null;
++  const clearFilters = useCallback(() => {
++    setKeyword("");
++    setCategoryId(null);
++    setPriceRange(null);
++  }, []);
+ 
+   return (
+     <View style={styles.container}>
+@@ -57,23 +105,66 @@ export function HomeScreen({ navigation }: TabScreenProps<"Home">) {
+           }}
+         />
+       )}
+-      <BookGrid
+-        data={visibleBooks}
+-        // TODO BT7.2a: onPressBook → navigation.navigate("BookDetail", { bookId: b.id })
+-        onPressBook={() => {}}
+-        ListHeaderComponent={
+-          <View>
+-            <CategoryChips categories={categories} selectedId={categoryId} onSelect={setCategoryId} />
+-            <PriceFilter value={priceRange} onChange={setPriceRange} />
+-            <TodoBox id="BT7.5b">Màn Home đang dùng dữ liệu GIẢ (mockBooks). Hãy nối API json-server.</TodoBox>
+-          </View>
+-        }
+-      />
+-      <FloatingCartButton count={0} onPress={() => navigation.navigate("Cart")} />
++      {/* BT7.5c: 3 trạng thái — đang tải / lỗi (thử lại) / có dữ liệu */}
++      {loading ? (
++        <LoadingView label="Đang tải sách…" />
++      ) : error ? (
++        <ErrorView message={error} onRetry={load} />
++      ) : (
++        <BookGrid
++          data={visibleBooks}
++          // BT7.2a: gửi bookId sang màn Chi tiết
++          onPressBook={(b) => navigation.navigate("BookDetail", { bookId: b.id })}
++          ListHeaderComponent={
++            <View>
++              <CategoryChips categories={categories} selectedId={categoryId} onSelect={setCategoryId} />
++              <PriceFilter value={priceRange} onChange={setPriceRange} />
++              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sortRow}>
++                {SORT_OPTIONS.map((o) => {
++                  const active = sort === o.key;
++                  return (
++                    <Pressable
++                      key={o.key}
++                      onPress={() => setSort(active ? null : o.key)}
++                      style={[styles.sortBtn, active && styles.sortBtnActive]}
++                    >
++                      <Text style={[styles.sortText, active && styles.sortTextActive]}>{o.label}</Text>
++                    </Pressable>
++                  );
++                })}
++              </ScrollView>
++              {/* BT7.7e: chỉ hiện khi đang có bộ lọc */}
++              {hasFilter && (
++                <Pressable style={styles.clearBtn} onPress={clearFilters}>
++                  <Text style={styles.clearText}>✕ Xóa bộ lọc</Text>
++                </Pressable>
++              )}
++            </View>
++          }
++          // BT7.7d: không có kết quả → EmptyState kèm nút xóa bộ lọc
++          ListEmptyComponent={
++            <EmptyState
++              emoji="🔎"
++              title="Không tìm thấy sách phù hợp"
++              message="Hãy thử từ khoá khác hoặc bỏ bớt bộ lọc."
++              actionLabel="Xóa bộ lọc"
++              onAction={clearFilters}
++            />
++          }
++        />
++      )}
++      <FloatingCartButton count={totalQuantity} onPress={() => navigation.navigate("Cart")} />
+     </View>
+   );
+ }
+ 
+ const styles = StyleSheet.create({
+   container: { flex: 1, backgroundColor: colors.bg },
++  sortRow: { paddingHorizontal: 12, paddingBottom: 10, gap: 8 },
++  sortBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: "#fff", borderWidth: 1, borderColor: colors.line },
++  sortBtnActive: { backgroundColor: colors.navy, borderColor: colors.navy },
++  sortText: { color: colors.text, fontWeight: "600" },
++  sortTextActive: { color: "#fff", fontWeight: "800" },
++  clearBtn: { alignSelf: "flex-start", marginHorizontal: 12, marginBottom: 10, paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: "#FEE2E2" },
++  clearText: { color: colors.danger, fontWeight: "700" },
+ });
+diff --git a/src/services/bookService.ts b/src/services/bookService.ts
+index c3c84a8..b84c409 100644
+--- a/src/services/bookService.ts
++++ b/src/services/bookService.ts
+@@ -8,13 +8,11 @@ export interface BookQuery {
+ 
+ // Component KHÔNG gọi axios trực tiếp — mọi lời gọi API nằm trong thư mục services
+ export async function getBooks(params?: BookQuery): Promise<Book[]> {
+-  // TODO BT7.5a: const res = await api.get<Book[]>("/books", { params }); return res.data;
+-  void api; void params;
+-  throw new Error("TODO BT7.5a: chưa viết getBooks()");
++  const res = await api.get<Book[]>("/books", { params });
++  return res.data;
+ }
+ 
+ export async function getBookById(id: number): Promise<Book> {
+-  // TODO BT7.5a: api.get<Book>(`/books/${id}`) → trả res.data
+-  void id;
+-  throw new Error("TODO BT7.5a: chưa viết getBookById()");
++  const res = await api.get<Book>(`/books/${id}`);
++  return res.data;
+ }
+diff --git a/src/services/categoryService.ts b/src/services/categoryService.ts
+index e05231e..79631ca 100644
+--- a/src/services/categoryService.ts
++++ b/src/services/categoryService.ts
+@@ -2,7 +2,6 @@ import { api } from "../api/client";
+ import { Category } from "../types";
+ 
+ export async function getCategories(): Promise<Category[]> {
+-  // TODO BT7.6a: GET /categories → trả res.data (cùng khuôn với bookService)
+-  void api;
+-  throw new Error("TODO BT7.6a: chưa viết getCategories()");
++  const res = await api.get<Category[]>("/categories");
++  return res.data;
+ }
+diff --git a/src/store/authSlice.ts b/src/store/authSlice.ts
+index 69cc76a..f876a8e 100644
+--- a/src/store/authSlice.ts
++++ b/src/store/authSlice.ts
+@@ -11,16 +11,18 @@ const authSlice = createSlice({
+   name: "auth",
+   initialState,
+   reducers: {
+-    // TODO BT7.4a: setCredentials — gán state.user và state.token từ action.payload
++    // BT7.4a
+     setCredentials(state, action: PayloadAction<{ user: User; token: string }>) {
+-      void state; void action;
++      state.user = action.payload.user;
++      state.token = action.payload.token;
+     },
+     updateUser(state, action: PayloadAction<Partial<User>>) {
+       if (state.user) state.user = { ...state.user, ...action.payload };
+     },
+-    // TODO BT7.4a: logout — đưa user và token về null
++    // BT7.4a
+     logout(state) {
+-      void state;
++      state.user = null;
++      state.token = null;
+     },
+   },
+ });
+diff --git a/src/store/cartSlice.ts b/src/store/cartSlice.ts
+index d8affc5..57e9a7d 100644
+--- a/src/store/cartSlice.ts
++++ b/src/store/cartSlice.ts
+@@ -12,21 +12,24 @@ const cartSlice = createSlice({
+   name: "cart",
+   initialState,
+   reducers: {
+-    // TODO BT7.3a: addItem — nếu bookId đã có thì tăng quantity (clamp ≤ stock), chưa có thì push { ...payload, quantity: 1 }
++    // BT7.3a: đã có bookId → tăng quantity (clamp ≤ stock); chưa có → thêm mới với quantity 1
+     addItem(state, action: PayloadAction<Omit<CartItem, "quantity">>) {
+-      void state; void action; void clamp;
++      const found = state.items.find((i) => i.bookId === action.payload.bookId);
++      if (found) found.quantity = clamp(found.quantity + 1, found.stock);
++      else state.items.push({ ...action.payload, quantity: 1 });
+     },
+-    // TODO BT7.3a: removeItem — lọc bỏ item có bookId === payload
++    // BT7.3a
+     removeItem(state, action: PayloadAction<number>) {
+-      void state; void action;
++      state.items = state.items.filter((i) => i.bookId !== action.payload);
+     },
+-    // TODO BT7.3a: setQuantity — tìm item, gán quantity = clamp(payload.quantity, item.stock)
++    // BT7.3a
+     setQuantity(state, action: PayloadAction<{ bookId: number; quantity: number }>) {
+-      void state; void action;
++      const found = state.items.find((i) => i.bookId === action.payload.bookId);
++      if (found) found.quantity = clamp(action.payload.quantity, found.stock);
+     },
+-    // TODO BT7.3a: clearCart — state.items = []
++    // BT7.3a
+     clearCart(state) {
+-      void state;
++      state.items = [];
+     },
+     // Dùng ở buổi sau: nạp lại giỏ hàng đã lưu trong AsyncStorage
+     hydrateCart(state, action: PayloadAction<CartItem[]>) {
+diff --git a/src/store/hooks.ts b/src/store/hooks.ts
+index 957092c..e37379a 100644
+--- a/src/store/hooks.ts
++++ b/src/store/hooks.ts
+@@ -15,9 +15,15 @@ export function useCart() {
+   const dispatch = useAppDispatch();
+   const items = useAppSelector((s) => s.cart.items);
+ 
+-  // TODO BT7.3b: totalQuantity = tổng quantity · totalPrice = tổng price * quantity (dùng reduce; useMemo theo [items])
+-  const totalQuantity = useMemo(() => 0 * items.length, [items]);
+-  const totalPrice = useMemo(() => 0 * items.length, [items]);
++  // BT7.3b: tổng số lượng và tổng tiền, chỉ tính lại khi items đổi
++  const totalQuantity = useMemo(
++    () => items.reduce((n, i) => n + i.quantity, 0),
++    [items]
++  );
++  const totalPrice = useMemo(
++    () => items.reduce((n, i) => n + i.price * i.quantity, 0),
++    [items]
++  );
+ 
+   return {
+     items,
+@@ -38,7 +44,8 @@ export function useAuth() {
+   return {
+     user,
+     token,
+-    isLoggedIn: false, // TODO BT7.4b: true khi có cả token lẫn user  →  !!token && !!user
++    // BT7.4b: đăng nhập khi có CẢ token và user
++    isLoggedIn: !!token && !!user,
+     signIn: useCallback((u: User, t: string) => dispatch(setCredentials({ user: u, token: t })), [dispatch]),
+     signOut: useCallback(() => dispatch(logout()), [dispatch]),
+     patchUser: useCallback((p: Partial<User>) => dispatch(updateUser(p)), [dispatch]),
+diff --git a/src/store/wishlistSlice.ts b/src/store/wishlistSlice.ts
+index e220af2..7a23ad2 100644
+--- a/src/store/wishlistSlice.ts
++++ b/src/store/wishlistSlice.ts
+@@ -10,9 +10,11 @@ const wishlistSlice = createSlice({
+   name: "wishlist",
+   initialState,
+   reducers: {
+-    // TODO BT7.C1 (thử thách): nếu id đã có trong state.ids thì bỏ ra, chưa có thì thêm vào
++    // BT7.C1: id đã có → bỏ ra, chưa có → thêm vào (toggle)
+     toggleWishlist(state, action: PayloadAction<number>) {
+-      void state; void action;
++      const i = state.ids.indexOf(action.payload);
++      if (i >= 0) state.ids.splice(i, 1);
++      else state.ids.push(action.payload);
+     },
+     hydrateWishlist(state, action: PayloadAction<number[]>) {
+       state.ids = action.payload;
+diff --git a/src/utils/filters.ts b/src/utils/filters.ts
+index eeead22..083d99b 100644
+--- a/src/utils/filters.ts
++++ b/src/utils/filters.ts
+@@ -12,12 +12,11 @@ export const PRICE_RANGES: { key: Exclude<PriceRange, null>; label: string }[] =
+   { key: "gt300", label: "Trên 300k" },
+ ];
+ 
+-// TODO BT7.C2 (thử thách): trả true nếu giá nằm trong khoảng r (null = không lọc)
++// BT7.C2: giá có nằm trong khoảng r không (null = không lọc theo giá)
+ //   lt100: < 100000 · 100to300: 100000..300000 · gt300: > 300000
+-const inRange = (price: number, r: PriceRange): boolean => {
+-  void price; void r;
+-  return true;
+-};
++const inRange = (price: number, r: PriceRange): boolean =>
++  r === null ||
++  (r === "lt100" ? price < 100000 : r === "100to300" ? price >= 100000 && price <= 300000 : price > 300000);
+ 
+ export interface BookFilter {
+   keyword: string;
+@@ -25,11 +24,13 @@ export interface BookFilter {
+   priceRange: PriceRange;
+ }
+ 
+-// Lọc KẾT HỢP: từ khoá (tên/tác giả) + danh mục + khoảng giá
++// Lọc KẾT HỢP (AND): từ khoá (tên/tác giả, không dấu) + danh mục + khoảng giá
+ export function filterBooks(books: Book[], f: BookFilter): Book[] {
+-  // TODO BT7.7c: lọc theo từ khoá — normalize(b.title / b.author).includes(normalize(f.keyword)); từ khoá rỗng = giữ tất cả
+-  // TODO BT7.8a: thêm điều kiện danh mục — f.categoryId === null || b.categoryId === f.categoryId
+-  // TODO BT7.C2: thêm điều kiện inRange(b.price, f.priceRange)
+-  void inRange;
+-  return books;
++  const k = normalize(f.keyword);
++  return books.filter(
++    (b) =>
++      (k === "" || normalize(b.title).includes(k) || normalize(b.author).includes(k)) &&
++      (f.categoryId === null || b.categoryId === f.categoryId) &&
++      inRange(b.price, f.priceRange)
++  );
+ }
+-- 
+2.43.0
+
