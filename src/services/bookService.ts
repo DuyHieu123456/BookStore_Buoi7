@@ -8,13 +8,11 @@ export interface BookQuery {
 
 // Component KHÔNG gọi axios trực tiếp — mọi lời gọi API nằm trong thư mục services
 export async function getBooks(params?: BookQuery): Promise<Book[]> {
-  // TODO BT7.5a: const res = await api.get<Book[]>("/books", { params }); return res.data;
-  void api; void params;
-  throw new Error("TODO BT7.5a: chưa viết getBooks()");
+  const res = await api.get<Book[]>("/books", { params });
+  return res.data;
 }
 
 export async function getBookById(id: number): Promise<Book> {
-  // TODO BT7.5a: api.get<Book>(`/books/${id}`) → trả res.data
-  void id;
-  throw new Error("TODO BT7.5a: chưa viết getBookById()");
+  const res = await api.get<Book>(`/books/${id}`);
+  return res.data;
 }

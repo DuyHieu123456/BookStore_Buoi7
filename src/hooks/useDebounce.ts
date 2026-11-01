@@ -4,10 +4,9 @@ import { useEffect, useState } from "react";
 export function useDebounce<T>(value: T, delay = 400): T {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
-    // TODO BT7.7b: setTimeout(() => setDebounced(value), delay) và return hàm dọn dẹp clearTimeout
-    //   (gõ tiếp → huỷ hẹn giờ cũ). Hiện tại hook trả value ngay → KHÔNG có debounce.
-    setDebounced(value);
-    void delay;
+    // BT7.7b: hẹn giờ cập nhật; gõ tiếp → hàm dọn dẹp huỷ hẹn giờ cũ
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
   }, [value, delay]);
   return debounced;
 }

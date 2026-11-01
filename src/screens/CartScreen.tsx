@@ -1,19 +1,15 @@
 import React from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
-import { TodoBox } from "../components/TodoBox";
 import { Header } from "../components/Header";
 import { CartItemRow } from "../components/CartItemRow";
-import { CartItem } from "../types";
 import { useCart } from "../store/hooks";
 import { TabScreenProps } from "../navigation/types";
 import { colors, formatPrice, radius } from "../theme";
 
 // đọc giỏ hàng từ store (không còn mock cứng); nút Thanh toán → Checkout
 export function CartScreen({ navigation }: TabScreenProps<"Cart">) {
-  // TODO BT7.3f: đọc { items, totalPrice } từ useCart() (store Redux) — hiện đang để giỏ rỗng
-  const items: CartItem[] = [];
-  const totalPrice = 0;
-  void useCart;
+  // BT7.3f: đọc giỏ từ Redux qua hook adapter useCart
+  const { items, totalPrice } = useCart();
 
   return (
     <View style={styles.container}>
@@ -23,15 +19,15 @@ export function CartScreen({ navigation }: TabScreenProps<"Cart">) {
         keyExtractor={(i) => String(i.bookId)}
         renderItem={({ item }) => <CartItemRow item={item} />}
         contentContainerStyle={{ paddingVertical: 8, flexGrow: 1 }}
-        ListEmptyComponent={<TodoBox id="BT7.3f">Giỏ hàng rỗng vì chưa đọc store. Hoàn thành BT7.3a–3f.</TodoBox>}
+        ListEmptyComponent={<Text style={styles.empty}>Giỏ hàng trống</Text>}
       />
       <View style={styles.footer}>
         <Text style={styles.total}>Tổng cộng: {formatPrice(totalPrice)}</Text>
         <Pressable
           style={[styles.btn, items.length === 0 && styles.btnDisabled]}
           disabled={items.length === 0}
-          // TODO BT7.2b: navigation.navigate("Checkout", { total: totalPrice })
-          onPress={() => void navigation}
+          // BT7.2b: gửi tổng tiền sang màn Thanh toán
+          onPress={() => navigation.navigate("Checkout", { total: totalPrice })}
         >
           <Text style={styles.btnText}>Thanh toán</Text>
         </Pressable>

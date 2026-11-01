@@ -12,21 +12,24 @@ const cartSlice = createSlice({
   name: "cart",
   initialState,
   reducers: {
-    // TODO BT7.3a: addItem — nếu bookId đã có thì tăng quantity (clamp ≤ stock), chưa có thì push { ...payload, quantity: 1 }
+    // BT7.3a: đã có bookId → tăng quantity (clamp ≤ stock); chưa có → thêm mới với quantity 1
     addItem(state, action: PayloadAction<Omit<CartItem, "quantity">>) {
-      void state; void action; void clamp;
+      const found = state.items.find((i) => i.bookId === action.payload.bookId);
+      if (found) found.quantity = clamp(found.quantity + 1, found.stock);
+      else state.items.push({ ...action.payload, quantity: 1 });
     },
-    // TODO BT7.3a: removeItem — lọc bỏ item có bookId === payload
+    // BT7.3a
     removeItem(state, action: PayloadAction<number>) {
-      void state; void action;
+      state.items = state.items.filter((i) => i.bookId !== action.payload);
     },
-    // TODO BT7.3a: setQuantity — tìm item, gán quantity = clamp(payload.quantity, item.stock)
+    // BT7.3a
     setQuantity(state, action: PayloadAction<{ bookId: number; quantity: number }>) {
-      void state; void action;
+      const found = state.items.find((i) => i.bookId === action.payload.bookId);
+      if (found) found.quantity = clamp(action.payload.quantity, found.stock);
     },
-    // TODO BT7.3a: clearCart — state.items = []
+    // BT7.3a
     clearCart(state) {
-      void state;
+      state.items = [];
     },
     // Dùng ở buổi sau: nạp lại giỏ hàng đã lưu trong AsyncStorage
     hydrateCart(state, action: PayloadAction<CartItem[]>) {
